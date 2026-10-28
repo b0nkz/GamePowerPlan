@@ -2,6 +2,10 @@
 
 A tiny tray app for Windows that puts your PC on the high performance power plan while you're playing a game, and back on balanced when you're not.
 
+[![Watch the 21-second video](docs/demo.jpg)](https://nimbonk.fyi/assets/gamepowerplan.mp4)
+
+▶ [Watch the 21-second video](https://nimbonk.fyi/assets/gamepowerplan.mp4)
+
 I made it because electric is getting expensive and I didn't want my PC sitting on full performance all day for no reason. I just wanted it to switch by itself when I launch a game and switch back when I'm done. That's it.
 
 I built this and tested it on my own PC (Ryzen, Windows 10 and 11). Read the source, it's one file.
