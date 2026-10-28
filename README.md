@@ -31,7 +31,9 @@ The easiest way is the [Microsoft Store](https://apps.microsoft.com/detail/9PF9K
 
 ![It switches by itself: start a game, it goes to your gaming plan; close it, it waits a minute, then goes back to balanced](docs/how-it-works.png)
 
-Every 5 seconds it looks at what's running. It doesn't keep a list of game names. It checks where each program lives on disk, and if it's inside a game folder (Steam, Epic, GOG, Riot, Xbox, Ubisoft, EA, Battle.net, or one you've added), it counts as a game.
+Every 5 seconds it looks at what's running. It doesn't keep a list of game names. It checks where each program lives on disk, and if it's inside a game folder (Steam, Epic, GOG, Riot, Xbox, Ubisoft, EA, or one you've added), it counts as a game. The launchers' own background programs (Epic's and Riot's) are ignored, so having a launcher open doesn't count.
+
+Got games installed somewhere else? When you first start it, it offers to **Scan for games**, and you can run that again from the Games menu any time. It checks the game lists Epic, GOG and Ubisoft keep, looks through your drives for files that only games come with (like Unity and Unreal engine files), then shows you a list to tick. It only adds what you tick, and it only runs when you ask.
 
 - Start a game and it switches to your gaming plan.
 - Close it and it waits 60 seconds before going back to your idle plan, so loading screens and launcher restarts don't make it flip back and forth.
@@ -61,7 +63,7 @@ Left-click it for the quick panel: the plan you're on, the mode, which game it f
 Right-click for everything else:
 
 - Auto, Force gaming plan, Force idle plan
-- Games: add a game by picking its .exe or folder, remove folders, and ignore programs that shouldn't count. If something keeps wrongly kicking it into high performance, "Ignore detected program" sorts it.
+- Games: scan for games, add a game by picking its .exe or folder, remove folders, and ignore programs that shouldn't count. If something keeps wrongly kicking it into high performance, "Ignore detected program" sorts it.
 - Power plans: pick your gaming and idle plans
 - Settings: grace period, check interval, hotkey, icon colours, notifications, start with Windows
 - Reload settings, Open settings file, Exit
@@ -96,7 +98,7 @@ Then run `GamePowerPlan.exe`. If an older copy is already running, exit it from 
 
 - It doesn't touch your games. No injecting, no reading game memory, no overlays, no drivers. It asks Windows where each program lives and changes the power plan, nothing else. I can't promise every anti-cheat will be happy with every background program, though, so use it at your own risk.
 - There's no prebuilt exe here. It isn't code signed, so SmartScreen would warn about an unknown publisher, and some antivirus tools get twitchy about anything that looks at running programs and adds a startup entry. Grab the Store version, or build it from the source.
-- Games installed outside the usual folders won't be picked up until you add their folder from the Games menu.
+- Games installed outside the usual folders won't be picked up until you add them, with Scan for games or by adding their folder from the Games menu.
 - There's no network code, and it collects nothing. Here's the [privacy policy](https://nimbonk.fyi/privacy/).
 - The Store version needs "full trust" because sandboxed apps can't read the paths of running programs or change the power plan. It still doesn't read memory or inject anything, and it's all there in `GamePowerPlan.cs`.
 - The `msix` folder is the Store packaging.

@@ -63,12 +63,16 @@ class GamePowerPlan : ApplicationContext
 
     static readonly string[] DefaultGames = new string[] {
         "\\steamapps\\common\\", "\\Epic Games\\", "\\GOG Galaxy\\Games\\", "\\GOG Games\\",
-        "\\Riot Games\\", "\\XboxGames\\", "\\Ubisoft Game Launcher\\games\\", "\\EA Games\\", "\\Battle.net\\"
+        "\\Riot Games\\", "\\XboxGames\\", "\\Ubisoft Game Launcher\\games\\", "\\EA Games\\"
     };
 
+    // Epic* and Riot* are the launchers' background programs, which sit inside the game folders above
     static readonly string[] DefaultIgnore = new string[] {
-        "PalServer*", "valheim_server*", "wallpaper*", "SteamVR*", "vrserver*"
+        "PalServer*", "valheim_server*", "wallpaper*", "SteamVR*", "vrserver*", "Epic*", "Riot*"
     };
+
+    // Bump when the defaults change in a way existing settings files should pick up once (see UpdateOldDefaults)
+    const int DefaultsVersion = 2;
 
     // ---- Windows API ------------------------------------------------------
 
@@ -131,6 +135,7 @@ class GamePowerPlan : ApplicationContext
     string idlePlanSetting;
     bool notifyOverride;
     bool holdPlan;
+    int defaultsVersion;
     List<string> games = new List<string>();
     List<string> ignores = new List<string>();
     List<Regex> ignoreRegexes = new List<Regex>();
@@ -164,6 +169,7 @@ class GamePowerPlan : ApplicationContext
     ToolStripMenuItem graceItem, checkItem, hotkeyItem, notifyItem, holdItem, startupItem;
 
     internal bool failed = false;
+    bool firstRun;
 
     [STAThread]
     static void Main()
@@ -216,6 +222,12 @@ class GamePowerPlan : ApplicationContext
             Notify("Hotkey not set", "Could not register " + hotkeyText + ". It may be used by another program.");
 
         SetMode(Mode.Auto);
+
+        if (firstRun &&
+            MessageBox.Show("GamePowerPlan spots Steam and Xbox games by itself, wherever they're installed.\n\n" +
+                "Want it to scan for your other games now? " + ScanExplained + "\n\nYou can also do this later from the Games menu.",
+                "GamePowerPlan", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
+            ScanForGames(false);
     }
 
     // ---- Menu -------------------------------------------------------------
@@ -248,6 +260,7 @@ class GamePowerPlan : ApplicationContext
         RebuildRemoveMenu(removeIgnoreMenu, false);
         ignoreDetectedItem = Item("Ignore detected program", (s, e) => IgnoreDetected());
 
+        gamesMenu.DropDownItems.Add(Item("Scan for games...", (s, e) => ScanForGames(true)));
         gamesMenu.DropDownItems.Add(Item("Add game (pick its .exe)...", (s, e) => AddGameFromExe()));
         gamesMenu.DropDownItems.Add(Item("Add game folder...", (s, e) => AddGameFromFolder()));
         gamesMenu.DropDownItems.Add(removeGameMenu);
@@ -663,6 +676,268 @@ class GamePowerPlan : ApplicationContext
             return true;
         }
         return false;
+    }
+
+    // ---- Scan for games ---------------------------------------------------
+    // Opt-in only: reads the installed-games lists that Epic, GOG and Ubisoft keep, scans drives for game files,
+    // and adds only what the user ticks. Steam and Xbox games are already covered by steamapps\common and XboxGames.
+
+    internal class FoundGame
+    {
+        public string Name, Folder;
+        public override string ToString() { return Name + "   (" + Folder + ")"; }
+    }
+
+    // One Epic manifest (*.item, JSON). Returns null for things that aren't games, such as Unreal Engine.
+    internal static FoundGame ParseEpicManifest(string json)
+    {
+        if (Regex.IsMatch(json, "\"bIsApplication\"\\s*:\\s*false")) return null;
+        Match name = Regex.Match(json, "\"DisplayName\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"");
+        Match dir = Regex.Match(json, "\"InstallLocation\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"");
+        if (!name.Success || !dir.Success) return null;
+        FoundGame g = new FoundGame();
+        g.Name = Regex.Unescape(name.Groups[1].Value);
+        g.Folder = Regex.Unescape(dir.Groups[1].Value);
+        return g;
+    }
+
+    static List<FoundGame> FindInstalledGames()
+    {
+        List<FoundGame> found = new List<FoundGame>();
+        try
+        {
+            string epic = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), @"Epic\EpicGamesLauncher\Data\Manifests");
+            if (Directory.Exists(epic))
+                foreach (string f in Directory.GetFiles(epic, "*.item"))
+                {
+                    FoundGame g = ParseEpicManifest(File.ReadAllText(f));
+                    if (g != null) found.Add(g);
+                }
+        }
+        catch { }
+        ReadRegistryGames(found, @"SOFTWARE\WOW6432Node\GOG.com\Games", "path", "gameName");
+        ReadRegistryGames(found, @"SOFTWARE\WOW6432Node\Ubisoft\Launcher\Installs", "InstallDir", null);
+        return found;
+    }
+
+    static void ReadRegistryGames(List<FoundGame> found, string key, string folderValue, string nameValue)
+    {
+        try
+        {
+            using (RegistryKey root = Registry.LocalMachine.OpenSubKey(key))
+            {
+                if (root == null) return;
+                foreach (string sub in root.GetSubKeyNames())
+                    using (RegistryKey k = root.OpenSubKey(sub))
+                    {
+                        string folder = k == null ? null : k.GetValue(folderValue) as string;
+                        if (string.IsNullOrEmpty(folder)) continue;
+                        folder = folder.Replace('/', '\\').TrimEnd('\\');
+                        string name = nameValue == null ? null : k.GetValue(nameValue) as string;
+                        FoundGame g = new FoundGame();
+                        g.Folder = folder;
+                        g.Name = string.IsNullOrEmpty(name) ? Path.GetFileName(folder) : name;
+                        found.Add(g);
+                    }
+            }
+        }
+        catch { }
+    }
+
+    // Games the current folder rules would miss, one per folder (a game and its DLC share a folder).
+    internal static List<FoundGame> NotYetCovered(List<FoundGame> found, List<string> rules)
+    {
+        List<FoundGame> result = new List<FoundGame>();
+        HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (FoundGame g in found)
+        {
+            string folder = g.Folder.TrimEnd('\\') + "\\";
+            if (!seen.Add(folder)) continue;
+            bool covered = false;
+            foreach (string r in rules)
+                if (folder.IndexOf(r, StringComparison.OrdinalIgnoreCase) >= 0) { covered = true; break; }
+            if (!covered) result.Add(g);
+        }
+        return result;
+    }
+
+    // Drive scan: walks the user's drives looking for files that only games ship with. Reads file names, never contents.
+
+    static readonly string[] SkipDirs = new string[] {
+        "Windows", "$Recycle.Bin", "System Volume Information", "Recovery", "WindowsApps", "AppData", "node_modules", ".git",
+        "ThirdParty", "downloading", "shadercache"   // bundled libraries and half-finished Steam downloads
+    };
+    static readonly string[] GenericNames = new string[] { "bin", "binaries", "win64", "win32", "x64", "x86", "game" };
+    const int ScanDepth = 9;
+
+    // A folder holds a game if it has a file that only games ship with.
+    internal static bool IsGameMarker(string fileName)
+    {
+        string f = fileName.ToLowerInvariant();
+        return f == "unityplayer.dll" || f == "gameassembly.dll" || f == "steam_api64.dll" || f == "steam_api.dll" ||
+               (f.EndsWith("-shipping.exe") && f.Contains("-win"));   // Unreal games: Name-Win64-Shipping.exe, Name-WinGDK-Shipping.exe
+    }
+
+    // The folder to watch and the name to show for a game whose marker file sits in markerDir.
+    internal static FoundGame GameFromMarkerDir(string markerDir)
+    {
+        string dir = markerDir.TrimEnd('\\');
+        int bin = dir.IndexOf("\\Binaries\\", StringComparison.OrdinalIgnoreCase);
+        if (bin > 0)
+        {
+            // Unreal: <Game>\<Project>\Binaries\Win64, so watch <Game>, which also holds the small launcher exe
+            string project = dir.Substring(0, bin);
+            string parent = Path.GetDirectoryName(project);
+            if (parent != null && Directory.Exists(Path.Combine(parent, "Engine"))) dir = parent;
+            else dir = project;
+        }
+        string named = dir;
+        while (Array.IndexOf(GenericNames, Path.GetFileName(named).ToLowerInvariant()) >= 0 && Path.GetDirectoryName(named) != null)
+            named = Path.GetDirectoryName(named);
+        FoundGame g = new FoundGame();
+        g.Folder = dir;
+        g.Name = Path.GetFileName(named);
+        return g;
+    }
+
+    static void ScanDir(DirectoryInfo dir, int depth, List<string> rules, List<FoundGame> found, Func<bool> cancelled)
+    {
+        if (depth > ScanDepth || cancelled()) return;
+        string path = dir.FullName.TrimEnd('\\') + "\\";
+        foreach (string r in rules) if (path.IndexOf(r, StringComparison.OrdinalIgnoreCase) >= 0) return;   // already watched
+        List<DirectoryInfo> subs = new List<DirectoryInfo>();
+        try
+        {
+            foreach (FileSystemInfo e in dir.EnumerateFileSystemInfos())
+            {
+                if ((e.Attributes & FileAttributes.Directory) != 0)
+                {
+                    // junctions and links can loop back on themselves; hidden system folders are never games
+                    if ((e.Attributes & FileAttributes.ReparsePoint) != 0) continue;
+                    if ((e.Attributes & FileAttributes.Hidden) != 0 && (e.Attributes & FileAttributes.System) != 0) continue;
+                    if (Array.IndexOf(SkipDirs, e.Name) >= 0) continue;
+                    subs.Add((DirectoryInfo)e);
+                }
+                else if (IsGameMarker(e.Name) && dir.Name.IndexOf("launcher", StringComparison.OrdinalIgnoreCase) < 0)
+                {   // launchers ship the same files as games, so a "...Launcher" folder never counts, but its subfolders still can
+                    found.Add(GameFromMarkerDir(dir.FullName));
+                    return;   // found a game: don't look inside it any further
+                }
+            }
+        }
+        catch { return; }   // no access
+        foreach (DirectoryInfo s in subs) ScanDir(s, depth + 1, rules, found, cancelled);
+    }
+
+    const string ScanExplained = "GamePowerPlan will check the game lists that Epic, GOG and Ubisoft keep, and look through your drives " +
+        "for files that only games come with (such as Unity and Unreal engine files). It only reads file names, and nothing is added until you tick it.";
+
+    // ask: false when the user already said yes to the first-run question
+    void ScanForGames(bool ask)
+    {
+        if (ask && MessageBox.Show(ScanExplained + "\n\nThis can take a minute or two. Start the scan?",
+                "Scan for games", MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK) return;
+
+        List<FoundGame> found = new List<FoundGame>();
+        List<string> rules = new List<string>(games);
+        bool stop = false;
+        using (Form f = new Form())
+        {
+            f.Text = "Scanning for games";
+            f.FormBorderStyle = FormBorderStyle.FixedDialog;
+            f.StartPosition = FormStartPosition.CenterScreen;
+            f.ControlBox = false;
+            f.TopMost = true;
+            f.ClientSize = new Size(360, 96);
+            Label l = new Label();
+            l.Text = "Looking through your drives...";
+            l.SetBounds(12, 12, 336, 20);
+            ProgressBar bar = new ProgressBar();
+            bar.Style = ProgressBarStyle.Marquee;
+            bar.SetBounds(12, 36, 336, 16);
+            Button cancel = new Button();
+            cancel.Text = "Cancel";
+            cancel.SetBounds(273, 60, 75, 28);
+            cancel.Click += (s, e) => { stop = true; cancel.Enabled = false; };
+            f.Controls.AddRange(new Control[] { l, bar, cancel });
+
+            Thread worker = new Thread(() =>
+            {
+                found.AddRange(FindInstalledGames());   // launcher lists first: they know games the file scan can't spot
+                foreach (DriveInfo d in DriveInfo.GetDrives())
+                {
+                    try { if (d.DriveType != DriveType.Fixed || !d.IsReady) continue; } catch { continue; }
+                    ScanDir(d.RootDirectory, 0, rules, found, () => stop);
+                }
+                try { f.BeginInvoke((Action)(() => f.Close())); } catch { }
+            });
+            worker.IsBackground = true;
+            f.Shown += (s, e) => worker.Start();
+            f.ShowDialog();
+            worker.Join();
+        }
+        if (stop) return;
+
+        List<FoundGame> missing = NotYetCovered(found, games);
+        if (missing.Count == 0)
+        {
+            MessageBox.Show("No new games found. Everything the scan found is already covered.\n\nIf a game still isn't spotted, add its folder from the Games menu.",
+                "GamePowerPlan", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+        ShowGameChecklist(missing);
+    }
+
+    void ShowGameChecklist(List<FoundGame> missing)
+    {
+        using (Form f = new Form())
+        {
+            f.Text = "Scan for games";
+            f.FormBorderStyle = FormBorderStyle.FixedDialog;
+            f.StartPosition = FormStartPosition.CenterScreen;
+            f.MaximizeBox = false;
+            f.MinimizeBox = false;
+            f.TopMost = true;
+            f.ClientSize = new Size(520, 300);
+
+            Label l = new Label();
+            l.Text = "These look like games that GamePowerPlan doesn't watch yet. Tick the ones that should switch to your gaming plan.";
+            l.SetBounds(12, 10, 496, 36);
+
+            CheckedListBox list = new CheckedListBox();
+            list.CheckOnClick = true;
+            list.SetBounds(12, 50, 496, 200);
+            foreach (FoundGame g in missing) list.Items.Add(g, true);
+
+            Button ok = new Button();
+            ok.Text = "Add ticked";
+            ok.DialogResult = DialogResult.OK;
+            ok.SetBounds(338, 262, 90, 28);
+
+            Button cancel = new Button();
+            cancel.Text = "Cancel";
+            cancel.DialogResult = DialogResult.Cancel;
+            cancel.SetBounds(434, 262, 74, 28);
+
+            f.AcceptButton = ok;
+            f.CancelButton = cancel;
+            f.Controls.AddRange(new Control[] { l, list, ok, cancel });
+            if (f.ShowDialog() != DialogResult.OK) return;
+
+            int added = 0;
+            foreach (FoundGame g in list.CheckedItems)
+            {
+                string full = g.Folder.TrimEnd('\\') + "\\";
+                if (IsTooBroad(full)) continue;
+                games.Add(full);
+                added++;
+            }
+            if (added == 0) return;
+            SaveConfig();
+            gamePid = 0;
+            Notify("Games added", added + (added == 1 ? " game" : " games") + " will now switch to your gaming plan.");
+            Tick(null, EventArgs.Empty);
+        }
     }
 
     // ---- Adding and removing games ---------------------------------------
@@ -1097,6 +1372,7 @@ class GamePowerPlan : ApplicationContext
         idlePlanSetting = "auto";
         notifyOverride = true;
         holdPlan = true;
+        defaultsVersion = 1;   // files written before the setting existed
     }
 
     static bool TryColour(string s, out Color c)
@@ -1161,6 +1437,9 @@ class GamePowerPlan : ApplicationContext
             case "hold_plan":
                 holdPlan = ParseBool(v, true);
                 break;
+            case "defaults_version":
+                if (int.TryParse(v, out n)) defaultsVersion = n;
+                break;
         }
     }
 
@@ -1206,7 +1485,10 @@ class GamePowerPlan : ApplicationContext
         bool isNew = !File.Exists(cfgPath) || new FileInfo(cfgPath).Length == 0;
         if (isNew)
         {
+            firstRun = true;
+            defaultsVersion = DefaultsVersion;
             ImportOldOrDefaults();
+            UpdateOldDefaults(games, ignores);   // an imported pre-1.0 list still carries the old defaults
             RebuildIgnoreRegexes();
             SaveConfig();
             return;
@@ -1237,7 +1519,22 @@ class GamePowerPlan : ApplicationContext
         if (!sawGames) newGames.AddRange(DefaultGames);
         games = newGames;
         ignores = newIgnores;
+        if (defaultsVersion < DefaultsVersion)
+        {
+            UpdateOldDefaults(games, ignores);
+            defaultsVersion = DefaultsVersion;
+            SaveConfig();
+        }
         RebuildIgnoreRegexes();
+    }
+
+    // Runs once per settings file: drops the Battle.net rule (it only ever caught the launcher)
+    // and adds the launcher ignores. Done once, so a user who later removes them keeps it that way.
+    internal static void UpdateOldDefaults(List<string> games, List<string> ignores)
+    {
+        games.RemoveAll(g => string.Equals(g, "\\Battle.net\\", StringComparison.OrdinalIgnoreCase));
+        foreach (string add in new string[] { "Epic*", "Riot*" })
+            if (!ignores.Exists(i => string.Equals(i, add, StringComparison.OrdinalIgnoreCase))) ignores.Add(add);
     }
 
     void SaveConfig()
@@ -1263,6 +1560,8 @@ class GamePowerPlan : ApplicationContext
         sb.AppendLine("notify_on_override=" + (notifyOverride ? "true" : "false"));
         sb.AppendLine("# put the plan back when something else changes it");
         sb.AppendLine("hold_plan=" + (holdPlan ? "true" : "false"));
+        sb.AppendLine("# used to update older settings files once when the defaults change; leave as it is");
+        sb.AppendLine("defaults_version=" + defaultsVersion);
         sb.AppendLine();
         sb.AppendLine("[games]");
         sb.AppendLine("# any running program whose path contains one of these lines counts as a game");
