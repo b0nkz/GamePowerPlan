@@ -1362,15 +1362,17 @@ class GamePowerPlan : ApplicationContext
         using (Graphics g = Graphics.FromImage(bmp))
         {
             g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            // scale the 26 px disc up to fill the icon, like the other tray icons;
+            // on a light taskbar leave a little room for the edge
+            float m = outline ? 1.5f : 0.5f;
+            float k = (32 - 2 * m) / 26f;
+            g.TranslateTransform(m, m);
+            g.ScaleTransform(k, k);
+            g.TranslateTransform(-3, -3);
             if (outline)
             {
-                // light colours fade into a light taskbar, so draw a thin dark edge under the fill
-                using (Pen p = new Pen(Ink, 2f))
-                {
-                    p.LineJoin = System.Drawing.Drawing2D.LineJoin.Round;
-                    g.DrawPolygon(p, boltLeft);
-                    g.DrawPolygon(p, boltRight);
-                }
+                // light colours fade into a light taskbar, so draw a thin dark ring under the fill
+                using (Pen p = new Pen(Ink, 1.5f / k)) g.DrawEllipse(p, 3, 3, 26, 26);
             }
             using (Brush b = new SolidBrush(c))
             {
