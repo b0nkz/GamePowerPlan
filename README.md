@@ -33,7 +33,7 @@ It never picks Ultimate Performance by itself. That plan just uses more power an
 
 ## The tray icon
 
-The icon is green on your idle plan and orange on your gaming plan. You can change both colours.
+The icon is teal on your idle plan and orange on your gaming plan. You can change both colours.
 
 Left click the icon for a quick panel: current plan, what mode it's in, which game it found and for how long, and Auto / High / Balanced buttons.
 

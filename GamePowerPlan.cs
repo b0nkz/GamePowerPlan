@@ -1089,8 +1089,8 @@ class GamePowerPlan : ApplicationContext
     {
         checkSeconds = 5;
         graceSeconds = 60;
-        balancedColour = Color.FromArgb(46, 160, 67);
-        gamingColour = Color.FromArgb(240, 120, 20);
+        balancedColour = Color.FromArgb(11, 143, 122);
+        gamingColour = Color.FromArgb(255, 107, 26);
         hotkeyText = "";
         gamingPlanSetting = "auto";
         idlePlanSetting = "auto";
@@ -1138,11 +1138,12 @@ class GamePowerPlan : ApplicationContext
             case "grace_seconds":
                 if (int.TryParse(v, out n)) graceSeconds = Math.Max(0, Math.Min(3600, n));
                 break;
+            // the old default colours were saved like any other choice, so skip them and keep the new defaults
             case "balanced_colour":
-                if (TryColour(v, out c)) balancedColour = c;
+                if (TryColour(v, out c) && ColourText(c) != "#2EA043") balancedColour = c;
                 break;
             case "gaming_colour":
-                if (TryColour(v, out c)) gamingColour = c;
+                if (TryColour(v, out c) && ColourText(c) != "#F07814") gamingColour = c;
                 break;
             case "hotkey":
                 hotkeyText = v;
@@ -1323,13 +1324,29 @@ class GamePowerPlan : ApplicationContext
         startupItem.Checked = StartupEnabled();
     }
 
+    // the logo: a disc split in two by a bolt, drawn in a 26 px circle at (3, 3)
+    static readonly PointF[] boltLeft = {
+        new PointF(15.46f, 3.01f), new PointF(9.46f, 16.32f), new PointF(16.96f, 18.33f), new PointF(12.38f, 28.49f),
+        new PointF(9.58f, 27.3f), new PointF(7.12f, 25.5f), new PointF(5.16f, 23.17f), new PointF(3.79f, 20.45f),
+        new PointF(3.09f, 17.49f), new PointF(3.09f, 14.44f), new PointF(3.81f, 11.48f), new PointF(5.2f, 8.77f),
+        new PointF(7.17f, 6.45f), new PointF(9.64f, 4.66f), new PointF(12.45f, 3.49f) };
+    static readonly PointF[] boltRight = {
+        new PointF(19.62f, 3.51f), new PointF(15.04f, 13.67f), new PointF(22.54f, 15.68f), new PointF(16.54f, 28.99f),
+        new PointF(19.55f, 28.51f), new PointF(22.36f, 27.34f), new PointF(24.83f, 25.55f), new PointF(26.8f, 23.23f),
+        new PointF(28.19f, 20.52f), new PointF(28.91f, 17.56f), new PointF(28.91f, 14.51f), new PointF(28.21f, 11.55f),
+        new PointF(26.84f, 8.83f), new PointF(24.88f, 6.5f), new PointF(22.42f, 4.7f) };
+
     static Icon MakeIcon(Color c, out IntPtr handle)
     {
         Bitmap bmp = new Bitmap(32, 32);
         using (Graphics g = Graphics.FromImage(bmp))
         {
             g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-            using (Brush b = new SolidBrush(c)) g.FillEllipse(b, 3, 3, 26, 26);
+            using (Brush b = new SolidBrush(c))
+            {
+                g.FillPolygon(b, boltLeft);
+                g.FillPolygon(b, boltRight);
+            }
         }
         handle = bmp.GetHicon();
         bmp.Dispose();
