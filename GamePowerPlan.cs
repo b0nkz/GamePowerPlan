@@ -3,7 +3,7 @@
 // Everything is controlled from the tray icon. Settings are stored in GamePowerPlan.cfg next to the exe.
 //
 // Build (one line, no install needed):
-//   C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe /target:winexe /out:GamePowerPlan.exe /win32manifest:GamePowerPlan.manifest /r:System.Windows.Forms.dll /r:System.Drawing.dll GamePowerPlan.cs
+//   C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe /target:winexe /out:GamePowerPlan.exe /win32manifest:GamePowerPlan.manifest /win32icon:GamePowerPlan.ico /r:System.Windows.Forms.dll /r:System.Drawing.dll GamePowerPlan.cs
 // (or just run build.bat)
 // Microsoft Store package: see the msix folder (run msix\build-msix.bat)
 
@@ -195,6 +195,7 @@ class GamePowerPlan : ApplicationContext
         }
 
         RebuildIcons();
+        SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
         BuildMenu();
 
         tray = new NotifyIcon();
@@ -1008,10 +1009,10 @@ class GamePowerPlan : ApplicationContext
         f.ShowInTaskbar = false;
         f.TopMost = true;
         f.StartPosition = FormStartPosition.Manual;
-        f.BackColor = Color.FromArgb(36, 36, 36);
+        f.BackColor = Ink;
         f.ForeColor = Color.White;
         f.Size = new Size(280, 184);
-        f.Paint += (s, e) => e.Graphics.DrawRectangle(Pens.DimGray, 0, 0, f.Width - 1, f.Height - 1);
+        f.Paint += (s, e) => { using (Pen edge = new Pen(InkLine)) e.Graphics.DrawRectangle(edge, 0, 0, f.Width - 1, f.Height - 1); };
 
         Color grey = Color.FromArgb(170, 170, 170);
         bool gaming = (activeNow != null && activeNow == gamingGuid);
@@ -1042,8 +1043,8 @@ class GamePowerPlan : ApplicationContext
             Button b = new Button();
             b.Text = labels[i];
             b.FlatStyle = FlatStyle.Flat;
-            b.FlatAppearance.BorderColor = Color.DimGray;
-            b.BackColor = (mode == target) ? Color.FromArgb(70, 110, 170) : Color.FromArgb(52, 52, 52);
+            b.FlatAppearance.BorderColor = InkLine;
+            b.BackColor = (mode == target) ? TealDark : InkRaised;
             b.ForeColor = Color.White;
             b.SetBounds(14 + i * 86, 140, 80, 30);
             b.Click += (s, e) => { SetMode(target); f.Close(); };
@@ -1336,12 +1337,41 @@ class GamePowerPlan : ApplicationContext
         new PointF(28.19f, 20.52f), new PointF(28.91f, 17.56f), new PointF(28.91f, 14.51f), new PointF(28.21f, 11.55f),
         new PointF(26.84f, 8.83f), new PointF(24.88f, 6.5f), new PointF(22.42f, 4.7f) };
 
-    static Icon MakeIcon(Color c, out IntPtr handle)
+    // brand colours for the quick panel
+    static readonly Color Ink = Color.FromArgb(18, 23, 31);
+    static readonly Color InkRaised = Color.FromArgb(32, 39, 50);
+    static readonly Color InkLine = Color.FromArgb(58, 66, 80);
+    static readonly Color TealDark = Color.FromArgb(10, 122, 104);  // keeps white button text readable
+
+    static bool LightTaskbar()
+    {
+        try
+        {
+            using (RegistryKey k = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"))
+            {
+                object v = k == null ? null : k.GetValue("SystemUsesLightTheme");
+                return v is int && (int)v == 1;
+            }
+        }
+        catch { return false; }
+    }
+
+    static Icon MakeIcon(Color c, bool outline, out IntPtr handle)
     {
         Bitmap bmp = new Bitmap(32, 32);
         using (Graphics g = Graphics.FromImage(bmp))
         {
             g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            if (outline)
+            {
+                // light colours fade into a light taskbar, so draw a thin dark edge under the fill
+                using (Pen p = new Pen(Ink, 2f))
+                {
+                    p.LineJoin = System.Drawing.Drawing2D.LineJoin.Round;
+                    g.DrawPolygon(p, boltLeft);
+                    g.DrawPolygon(p, boltRight);
+                }
+            }
             using (Brush b = new SolidBrush(c))
             {
                 g.FillPolygon(b, boltLeft);
@@ -1357,16 +1387,24 @@ class GamePowerPlan : ApplicationContext
     {
         IntPtr oldIdle = hIdle;
         IntPtr oldGaming = hGaming;
-        iconIdle = MakeIcon(balancedColour, out hIdle);
-        iconGaming = MakeIcon(gamingColour, out hGaming);
+        bool light = LightTaskbar();
+        iconIdle = MakeIcon(balancedColour, light, out hIdle);
+        iconGaming = MakeIcon(gamingColour, light, out hGaming);
         if (tray != null) UpdateUi();
         if (oldIdle != IntPtr.Zero) DestroyIcon(oldIdle);
         if (oldGaming != IntPtr.Zero) DestroyIcon(oldGaming);
     }
 
+    // switching Windows between light and dark mode arrives as a General preference change
+    void OnUserPreferenceChanged(object sender, UserPreferenceChangedEventArgs e)
+    {
+        if (e.Category == UserPreferenceCategory.General) RebuildIcons();
+    }
+
     void ExitApp()
     {
         timer.Stop();
+        SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
         UnregisterHotkey();
         tray.Visible = false;
         tray.Dispose();

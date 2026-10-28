@@ -3,7 +3,7 @@ setlocal
 cd /d "%~dp0"
 
 echo Step 1 of 3: building GamePowerPlan.exe
-"%WINDIR%\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /target:winexe /out:GamePowerPlan.exe /win32manifest:..\GamePowerPlan.manifest /r:System.Windows.Forms.dll /r:System.Drawing.dll ..\GamePowerPlan.cs
+"%WINDIR%\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /target:winexe /out:GamePowerPlan.exe /win32manifest:..\GamePowerPlan.manifest /win32icon:..\GamePowerPlan.ico /r:System.Windows.Forms.dll /r:System.Drawing.dll ..\GamePowerPlan.cs
 if errorlevel 1 goto fail
 
 echo Step 2 of 3: finding makeappx.exe from the Windows SDK

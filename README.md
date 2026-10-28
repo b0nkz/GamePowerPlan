@@ -63,10 +63,10 @@ Settings are saved in `GamePowerPlan.cfg`, in the same folder as the exe. It's c
 
 ## Build it
 
-You don't need to install anything. Windows already comes with a C# compiler. Download `GamePowerPlan.cs`, `GamePowerPlan.manifest` and `build.bat` into one folder and run `build.bat`. Or open a terminal there and run this on one line:
+You don't need to install anything. Windows already comes with a C# compiler. Download `GamePowerPlan.cs`, `GamePowerPlan.manifest`, `GamePowerPlan.ico` and `build.bat` into one folder and run `build.bat`. Or open a terminal there and run this on one line:
 
 ```
-C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe /target:winexe /out:GamePowerPlan.exe /win32manifest:GamePowerPlan.manifest /r:System.Windows.Forms.dll /r:System.Drawing.dll GamePowerPlan.cs
+C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe /target:winexe /out:GamePowerPlan.exe /win32manifest:GamePowerPlan.manifest /win32icon:GamePowerPlan.ico /r:System.Windows.Forms.dll /r:System.Drawing.dll GamePowerPlan.cs
 ```
 
 Then run `GamePowerPlan.exe`. If it's already running, exit it from the tray first, because Windows won't let you replace a running exe.
